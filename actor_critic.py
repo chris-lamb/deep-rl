@@ -158,7 +158,7 @@ def main():
 
     # Initialize constants
     max_episodes = 500000
-    max_frames = 1000
+    max_frames = 10000
     gamma = 0.95
     num_frames = 4
 
@@ -179,54 +179,50 @@ def main():
         state = np.stack([state]*num_frames)
 
         reward_sum = 0.0
-        done = False
-        while not done:
-            for frame in range(max_frames):
-                # Select action
-                if model_name == 'a2c-lstm':
-                    action, log_prob, state_value, (hx, cx) = select_action_lstm(model, state,
-                                                                                 (hx, cx), cuda)
-                else:
-                    action, log_prob, state_value = select_action(model, state, cuda)
+        for frame in range(max_frames):
+            # Select action
+            if model_name == 'a2c-lstm':
+                action, log_prob, state_value, (hx, cx) = select_action_lstm(model, state,
+                                                                             (hx, cx), cuda)
+            else:
+                action, log_prob, state_value = select_action(model, state, cuda)
 
-                model.saved_actions.append((log_prob, state_value))
+            model.saved_actions.append((log_prob, state_value))
 
-                # Perform step
-                next_state, reward, done, info = env.step(action)
+            # Perform step
+            next_state, reward, done, info = env.step(action)
 
-                # Add reward to reward buffer
-                model.rewards.append(reward)
-                reward_sum += reward
+            # Add reward to reward buffer
+            model.rewards.append(reward)
+            reward_sum += reward
 
-                # Compute latest state
-                next_state = preprocess_state(next_state)
+            # Compute latest state
+            next_state = preprocess_state(next_state)
 
-                # Evict oldest frame add new frame to state
-                next_state = np.stack([next_state]*num_frames)
-                next_state[1:, :, :] = state[:-1, :, :]
-                state = next_state
+            # Evict oldest frame add new frame to state
+            next_state = np.stack([next_state]*num_frames)
+            next_state[1:, :, :] = state[:-1, :, :]
+            state = next_state
 
-                if done:
-                    # Compute/display statistics
-                    if running_reward is None:
-                        running_reward = reward_sum
-                    else:
-                        running_reward = running_reward * 0.99 + reward_sum * 0.01
+            if done:
+                break
 
-                    running_rewards.append(running_reward)
+        # Compute/display episode statistics
+        if running_reward is None:
+            running_reward = reward_sum
+        else:
+            running_reward = running_reward * 0.99 + reward_sum * 0.01
 
-                    verbose_str = 'Episode {} complete'.format(ep+1)
-                    verbose_str += '\tReward total:{}'.format(reward_sum)
-                    verbose_str += '\tRunning mean: {:.4}'.format(running_reward)
-                    sys.stdout.write('\r' + verbose_str)
-                    sys.stdout.flush()
-                    break
+        running_rewards.append(running_reward)
 
-            # Update model
-            backpropagate(model, optimizer, gamma, cuda)
-            # Hidden values are carried forward
-            cx = Variable(cx.data)
-            hx = Variable(hx.data)
+        verbose_str = 'Episode {} complete'.format(ep+1)
+        verbose_str += '\tReward total:{}'.format(reward_sum)
+        verbose_str += '\tRunning mean: {:.4}'.format(running_reward)
+        sys.stdout.write('\r' + verbose_str)
+        sys.stdout.flush()
+
+        # Update model
+        backpropagate(model, optimizer, gamma, cuda)
 
         # Save model every 1000 episodes
         if (ep+1) % 1000 == 0:
