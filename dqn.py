@@ -16,14 +16,16 @@ from utils import preprocess_state
 def parse_arguments():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-g', action='store', dest='game', default='Breakout-v0')
-    parser.add_argument('-w', action='store_true', dest='warm_start', default=False)
+    parser.add_argument('-g', '--game', action='store', dest='game', default='Breakout-v0')
+    parser.add_argument('-w', '--warmstart', action='store_true', dest='warm_start', default=False)
+    parser.add_argument('-r', '--render', action='store_true', dest='render', default=False)
 
     args = parser.parse_args()
     game = args.game
     warm_start = args.warm_start
+    render = args.render
 
-    return game, warm_start
+    return game, warm_start, render
 
 
 def initialize(game, model_name, warm_start):
@@ -33,7 +35,7 @@ def initialize(game, model_name, warm_start):
 
     # Initialize constants
     num_frames = 4
-    capacity = int(5e4)
+    capacity = int(1e4)
 
     # Cold start
     if not warm_start:
@@ -110,7 +112,7 @@ def main():
     model_name = 'dqn'
 
     # Parse arguments
-    game, warm_start = parse_arguments()
+    game, warm_start, render = parse_arguments()
 
     # Initialize enviroment/model
     data = initialize(game, model_name, warm_start)
@@ -129,6 +131,10 @@ def main():
         reward_sum = 0.0
 
         while True:
+            # render frame if render argument was passed
+            if render:
+                env.render()
+
             # Select action
             action = select_epilson_greedy_action(model, state, ep, cuda)
 
@@ -195,10 +201,10 @@ def main():
             outputs = model(states).gather(1, actions.unsqueeze(1))
 
             # Perform gradient descent step
-            loss = criterion(outputs, targets)
+            loss = criterion(outputs.view(batch_size), targets)
             loss.backward()
             # Clip gradient at 20,000
-            torch.nn.utils.clip_grad_norm(model.parameters(), 20000)
+            # torch.nn.utils.clip_grad_norm(model.parameters(), 20000)
             optimizer.step()
 
             if done:

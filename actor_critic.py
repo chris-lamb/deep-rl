@@ -16,16 +16,18 @@ from utils import preprocess_state
 def parse_arguments():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-g', action='store', dest='game', default='Breakout-v0')
-    parser.add_argument('-m', action='store', dest='model', default='a2c-lstm')
-    parser.add_argument('-w', action='store_true', dest='warm_start', default=False)
+    parser.add_argument('-g', '--game', action='store', dest='game', default='Breakout-v0')
+    parser.add_argument('-m', '--model', action='store', dest='model', default='a2c-lstm')
+    parser.add_argument('-w', '--warmstart', action='store_true', dest='warm_start', default=False)
+    parser.add_argument('-r', '--render', action='store_true', dest='render', default=False)
 
     args = parser.parse_args()
     game = args.game
     model_name = args.model
     warm_start = args.warm_start
+    render = args.render
 
-    return game, model_name, warm_start
+    return game, model_name, warm_start, render
 
 
 def initialize(game, model_name, warm_start):
@@ -127,7 +129,7 @@ def backpropagate(model, optimizer, gamma, cuda):
         rewards = rewards.cuda()
 
     # z-score rewards
-    rewards = (rewards - rewards.mean()) / (rewards.std() + np.finfo(np.float32).eps)
+    rewards = (rewards - rewards.mean()) / (rewards.std() + np.finfo(float).eps)
 
     for (log_prob, state_value), r in zip(saved_actions, rewards):
         reward = r - state_value.data[0]
@@ -135,13 +137,13 @@ def backpropagate(model, optimizer, gamma, cuda):
         r = torch.Tensor([r])
         if cuda:
             r = r.cuda()
-        value_losses.append(torch.nn.functional.smooth_l1_loss(state_value, Variable(r)))
+        value_losses.append(torch.nn.functional.smooth_l1_loss(state_value.view(1), Variable(r)))
 
     optimizer.zero_grad()
     loss = torch.stack(policy_losses).sum() + torch.stack(value_losses).sum()
     loss.backward()
     # Clip gradient at 20,000
-    torch.nn.utils.clip_grad_norm(model.parameters(), 20000)
+    # torch.nn.utils.clip_grad_norm(model.parameters(), 20000)
     optimizer.step()
     del model.rewards[:]
     del model.saved_actions[:]
@@ -150,7 +152,7 @@ def backpropagate(model, optimizer, gamma, cuda):
 def main():
 
     # Parse arguments
-    game, model_name, warm_start = parse_arguments()
+    game, model_name, warm_start, render = parse_arguments()
 
     # initialize enviroment/model
     data = initialize(game, model_name, warm_start)
@@ -180,12 +182,17 @@ def main():
 
         reward_sum = 0.0
         for frame in range(max_frames):
+            # render frame if render argument was passed
+            if render:
+                env.render()
             # Select action
             if model_name == 'a2c-lstm':
-                action, log_prob, state_value, (hx, cx) = select_action_lstm(model, state,
-                                                                             (hx, cx), cuda)
+                result = select_action_lstm(model, state, (hx, cx), cuda)
+                action, log_prob, state_value, (hx, cx) = result
+
             else:
-                action, log_prob, state_value = select_action(model, state, cuda)
+                result = select_action(model, state, cuda)
+                action, log_prob, state_value = result
 
             model.saved_actions.append((log_prob, state_value))
 
